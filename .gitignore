@@ -21,3 +21,20 @@ Thumbs.db
 # Editor folders
 .vscode/
 .idea/
+
+# MarkSync local dependencies and data
+/app/node_modules/
+/app/data/
+/app/node.exe
+/app/.env
+/app/.env.*
+!/app/.env.example
+/app/dist/
+/app/coverage/
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-wal
+*.db-shm

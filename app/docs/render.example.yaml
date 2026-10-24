@@ -1,0 +1,25 @@
+# Copy to render.yaml at the final repository root before using Render Blueprints.
+# This template describes PAID resources. Review costs before provisioning.
+services:
+  - type: web
+    name: marksync
+    runtime: node
+    plan: starter
+    branch: main
+    buildCommand: npm install --global pnpm@11.25.0 && pnpm install --frozen-lockfile && pnpm build
+    startCommand: node dist/main.js
+    autoDeployTrigger: checksPass
+    healthCheckPath: /
+    disk:
+      name: marksync-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: 24.22.1
+      - key: HOST
+        value: 0.0.0.0
+      - key: DATABASE_PATH
+        value: /var/data/marksync.sqlite
+      - key: APP_ORIGIN
+        sync: false

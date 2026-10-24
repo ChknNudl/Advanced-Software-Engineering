@@ -1,0 +1,12 @@
+services:
+  marksync:
+    build: .
+    ports:
+      - '127.0.0.1:3000:3000'
+    environment:
+      APP_ORIGIN: http://localhost:3000
+      DATABASE_PATH: /app/data/marksync.sqlite
+    volumes:
+      - marksync-data:/app/data
+volumes:
+  marksync-data:

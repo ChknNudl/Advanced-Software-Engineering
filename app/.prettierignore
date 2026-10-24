@@ -1,0 +1,13 @@
+pnpm-lock.yaml
+dist
+node_modules
+data
+output
+tmp
+/node.exe
+/nodevars.bat
+/install_tools.bat
+/corepack*
+/npm*
+/npx*
+public/client.js
