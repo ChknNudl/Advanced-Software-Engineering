@@ -1,0 +1,12 @@
+name: CI                      # label shown in GitHub's Actions tab and on PRs
+on:                           # TRIGGER: when should this workflow run?
+  pull_request:               #   whenever a pull request event happens...
+    branches: [main]          #   ...but only for PRs that target main
+
+jobs:                         # a workflow is made of one or more jobs
+  checks:                     # the job's ID
+    runs-on: ubuntu-latest    # which kind of machine GitHub rents for this job
+    steps:                    # the job's instructions, run in order
+      - uses: actions/checkout@v4
+      - name: Placeholder
+        run: echo "CI skeleton running..."
