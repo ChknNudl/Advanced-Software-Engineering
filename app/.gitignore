@@ -1,0 +1,25 @@
+node_modules/
+dist/
+data/
+.env
+coverage/
+tmp/
+*.log
+# Local Node installer/runtime files accidentally placed in the repository.
+/node.exe
+/nodevars.bat
+/install_tools.bat
+/corepack
+/corepack.cmd
+/npm
+/npm.cmd
+/npm.ps1
+/npx
+/npx.cmd
+/npx.ps1
+/*.msi
+/*.zip
+/public/client.js
+*.sqlite
+*.sqlite-*
+*.before-collaboration-*.bak

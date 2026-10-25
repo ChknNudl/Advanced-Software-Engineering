@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MarkSync · A shared space for your ideas</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script type="module" src="/client.js"></script>
+  </head>
+  <body>
+    <div id="auth" class="auth-layout">
+      <section class="intro">
+        <a class="brand" href="/">m<span>MarkSync</span></a>
+        <div>
+          <p class="eyebrow">ADVANCED SOFTWARE ENGINEERING / 2026</p>
+          <h1>Good ideas.<br />Better together.</h1>
+          <p class="lead">
+            A shared home for your team's notes, decisions, and next big thing.
+            Write in Markdown. Make room for everyone.
+          </p>
+          <div class="intro-note">
+            <span class="dot"></span> Task 1 · The walking skeleton
+          </div>
+        </div>
+        <p class="muted">Built to evolve. One well-tested step at a time.</p>
+      </section>
+      <section class="auth-panel">
+        <form id="auth-form">
+          <p class="eyebrow">YOUR TEAM WORKSPACE</p>
+          <h2 id="auth-heading">Welcome back.</h2>
+          <p id="auth-description">Sign in to pick up where you left off.</p>
+          <label id="name-field" hidden
+            >Your name<input name="name" maxlength="60" autocomplete="name"
+          /></label>
+          <label
+            >Email<input
+              name="email"
+              type="email"
+              required
+              maxlength="254"
+              autocomplete="email"
+          /></label>
+          <label
+            >Password<input
+              id="password"
+              name="password"
+              type="password"
+              required
+              minlength="12"
+              maxlength="128"
+              autocomplete="current-password"
+            /><small>At least 12 characters.</small></label
+          >
+          <button type="submit" class="primary" id="auth-submit">
+            Sign in →
+          </button>
+          <p id="auth-error" role="alert"></p>
+          <button id="auth-toggle" type="button" class="text-button">
+            New here? Create an account
+          </button>
+          <p class="workspace-note">
+            Your documents are private until you share them. Sign in to accept
+            project or document invitations.
+          </p>
+        </form>
+      </section>
+    </div>
+    <div id="workspace" hidden>
+      <aside>
+        <a class="brand" href="/">m<span>MarkSync</span></a>
+        <p class="eyebrow">TEAM KNOWLEDGE SPACE</p>
+        <button id="home" class="nav-button">⌂ &nbsp; All documents</button>
+        <button class="primary" id="new-document">+ New document</button
+        ><label class="search-label"
+          >Find a document<input
+            id="search"
+            type="search"
+            placeholder="Search documents…"
+        /></label>
+        <div class="organise-actions">
+          <button id="new-project" class="text-button">+ Project</button
+          ><button id="new-folder" class="text-button" disabled>
+            + Folder
+          </button>
+        </div>
+        <label class="search-label"
+          >Project<select id="project-filter">
+            <option value="">All documents</option>
+          </select></label
+        >
+        <label class="search-label"
+          >Folder<select id="folder-filter">
+            <option value="">All folders</option>
+          </select></label
+        >
+        <div class="organise-actions">
+          <button id="share-project" class="text-button" disabled>
+            Share project</button
+          ><button id="trash-view" class="text-button">Trash</button>
+        </div>
+        <p id="collection-label" class="collection-label">DOCUMENTS</p>
+        <nav id="documents" aria-label="Documents"></nav>
+        <button id="refresh-documents" class="text-button">
+          Refresh document list
+        </button>
+        <div class="sidebar-footer">
+          <span id="user-name"></span
+          ><button id="logout" class="text-button">Sign out</button>
+        </div>
+      </aside>
+      <main>
+        <header>
+          <div>
+            <p class="breadcrumb">
+              <span>▤</span> Workspace <span>/</span> Documents
+            </p>
+            <p class="header-note">
+              Your team’s shared knowledge, in one place.
+            </p>
+          </div>
+          <div class="toolbar">
+            <button id="share" disabled>Share</button
+            ><button id="edit-mode" disabled>Edit document</button
+            ><button id="header-create">+ New doc</button>
+          </div>
+        </header>
+        <section id="empty">
+          <p class="eyebrow">START SOMETHING TOGETHER</p>
+          <h1>Your next idea<br />starts here.</h1>
+          <p>Create a document or open one from the sidebar.</p>
+          <button class="primary" id="empty-create">
+            Create your first document →
+          </button>
+        </section>
+        <section id="editor" hidden>
+          <div class="document-top">
+            <h1 id="document-heading"></h1>
+            <label class="title-label"
+              >Document title<input
+                id="title"
+                maxlength="160"
+                placeholder="Untitled document" /></label
+            ><button class="primary" id="save">Save title</button>
+          </div>
+          <div class="document-meta">
+            <span id="save-state" role="status">Saved</span
+            ><span id="presence" role="status">Connecting…</span>
+          </div>
+          <div class="editor-actions">
+            <span id="access-label"></span
+            ><button id="move-document" class="text-button">Move</button
+            ><button id="delete-document" class="text-button">
+              Move to Trash</button
+            ><button id="download" class="text-button">
+              Download my Markdown
+            </button>
+            <button id="reload-document" class="text-button">
+              Load latest saved version
+            </button>
+            <small id="heartbeat" role="status"
+              >Waiting for two-way heartbeat…</small
+            >
+          </div>
+          <p id="conflict" class="conflict" role="alert" hidden>
+            A newer version was saved by another editor. Your text is still
+            here. Download your Markdown before loading the latest saved
+            version, then reconcile your changes.
+          </p>
+          <div class="reading-layout">
+            <nav id="contents" aria-label="Document contents">
+              <p class="eyebrow">CONTENTS</p>
+              <div id="contents-links"></div>
+            </nav>
+            <div class="editor-grid">
+              <section id="source-pane">
+                <div class="pane-heading">
+                  MARKDOWN <span>Plain text, clear thinking</span>
+                </div>
+                <textarea
+                  id="markdown"
+                  aria-label="Markdown content"
+                  spellcheck="true"
+                ></textarea>
+              </section>
+              <section>
+                <div class="pane-heading">
+                  PREVIEW <span>How your words take shape</span>
+                </div>
+                <article id="preview"></article>
+              </section>
+            </div>
+          </div>
+          <p class="footnote">
+            Live text editing · Text saves automatically while connected ·
+            Titles save separately
+          </p>
+        </section>
+        <p id="notice" role="alert"></p>
+      </main>
+    </div>
+    <dialog id="name-dialog">
+      <form id="name-form">
+        <h2 id="name-heading">New project</h2>
+        <label>Name<input id="item-name" required maxlength="100" /></label>
+        <div class="dialog-actions">
+          <button type="button" data-close="name-dialog">Cancel</button
+          ><button class="primary">Create</button>
+        </div>
+        <p id="name-error" role="alert"></p>
+      </form>
+    </dialog>
+    <dialog id="share-dialog">
+      <h2 id="share-heading">Share</h2>
+      <p>
+        Anyone with this invitation link can sign in and accept the selected
+        access. Project access includes all its folders and documents.
+      </p>
+      <form id="share-form">
+        <label
+          >Permission<select id="share-role">
+            <option value="read">Read only</option>
+            <option value="edit">Can edit</option>
+          </select></label
+        ><button class="primary">Create invitation link</button>
+      </form>
+      <label id="share-result" hidden
+        >New invitation link<input id="share-url" readonly /><button
+          id="copy-invite"
+        >
+          Copy invitation
+        </button></label
+      >
+      <p id="share-feedback" role="status"></p>
+      <h3>Active invitation links</h3>
+      <div id="share-links"></div>
+      <p class="muted">
+        Revoking a link removes access granted through it. People may still have
+        access through another link or the project. Only owners can share, move
+        or delete documents.
+      </p>
+      <button data-close="share-dialog">Done</button>
+    </dialog>
+    <dialog id="move-dialog">
+      <form id="move-form">
+        <h2>Move document</h2>
+        <p>
+          Moving changes who can see this document through project access.
+          Existing document invitations remain active.
+        </p>
+        <label>Destination project<select id="move-project"></select></label
+        ><label>Destination folder<select id="move-folder"></select></label>
+        <div class="dialog-actions">
+          <button type="button" data-close="move-dialog">Cancel</button
+          ><button class="primary">Move document</button>
+        </div>
+        <p id="move-error" role="alert"></p>
+      </form>
+    </dialog>
+    <dialog id="delete-dialog">
+      <h2>Move to Trash?</h2>
+      <p>
+        Collaborators will lose access while this document is in Trash. An owner
+        can restore it later.
+      </p>
+      <div class="dialog-actions">
+        <button data-close="delete-dialog">Cancel</button
+        ><button id="confirm-delete" class="primary">Move to Trash</button>
+      </div>
+      <p id="delete-error" role="alert"></p>
+    </dialog>
+  </body>
+</html>
