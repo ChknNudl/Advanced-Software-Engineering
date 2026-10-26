@@ -17,7 +17,7 @@
     "format:check": "prettier --check .",
     "test": "tsx --test test/*.test.ts",
     "check": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm build",
-    "build:client": "node node_modules/esbuild/bin/esbuild public/app.js --bundle --format=esm --outfile=public/client.js"
+    "build:client": "esbuild public/app.js --bundle --format=esm --outfile=public/client.js"
   },
   "dependencies": {
     "express": "^5.3.0",
