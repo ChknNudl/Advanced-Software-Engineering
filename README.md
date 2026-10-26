@@ -112,6 +112,7 @@ For more information, see:
 - [ADR 001](docs/adr/)
 - [Task 1 Checklist](app/docs/TASK1-CHECKLIST.md)
 
+##Testing Code Rabbit AI
 ## Deployment
 
 Task 1 is designed to run locally. Public cloud deployment is not required at this stage.
