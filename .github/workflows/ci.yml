@@ -10,6 +10,10 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege: this workflow only needs to read the repository.
+permissions:
+  contents: read
+
 jobs:
   # The job name `checks` is referenced by the branch protection ruleset
   # (Settings -> Rules -> Rulesets -> "Protect main"). If you rename it,
@@ -30,8 +34,9 @@ jobs:
       - uses: actions/checkout@v5
 
       # Install Node.js. Version 24 matches the "engines" field in app/package.json.
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v5
         with:
+          persist-credentials: false
           node-version: 24
 
       # Enable corepack, which makes the machine use the exact pnpm version
