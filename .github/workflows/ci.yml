@@ -32,12 +32,14 @@ jobs:
     steps:
       # Download this repository's code onto the machine, which starts out empty.
       - uses: actions/checkout@v5
-
-      # Install Node.js. Version 24 matches the "engines" field in app/package.json.
-      - uses: actions/checkout@v5
         with:
           persist-credentials: false
+
+      # Install Node.js. Version 24 matches the "engines" field in app/package.json.
+      - uses: actions/setup-node@v5
+        with:
           node-version: 24
+          package-manager-cache: false
 
       # Enable corepack, which makes the machine use the exact pnpm version
       # pinned in package.json ("packageManager"), so CI matches local setups.
