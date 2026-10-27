@@ -8,7 +8,7 @@ reviews:
     drafts: false
     base_branches: [main]
   path_instructions:
-    - path: 'src/**'
+    - path: 'app/src/**'
       instructions: 'Review authentication, CSRF and WebSocket origin validation, session expiry, database correctness, and stale-save conflicts. Flag bugs and propose actionable fixes.'
-    - path: 'test/**'
+    - path: 'app/test/**'
       instructions: 'Check that assertions demonstrate failure behavior, real bidirectional WebSockets and database persistence rather than only mocks.'
