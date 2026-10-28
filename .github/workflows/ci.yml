@@ -1,12 +1,74 @@
-name: CI                      # label shown in GitHub's Actions tab and on PRs
-on:                           # TRIGGER: when should this workflow run?
-  pull_request:               #   whenever a pull request event happens...
-    branches: [main]          #   ...but only for PRs that target main
+# CI (Continuous Integration) workflow.
+# Runs automatically on every pull request that targets `main`. It installs the
+# app and runs the same quality checks a developer would run locally, so broken
+# code is caught before review. Branch protection requires this to pass
+# before a PR can be merged.
+name: CI
 
-jobs:                         # a workflow is made of one or more jobs
-  checks:                     # the job's ID
-    runs-on: ubuntu-latest    # which kind of machine GitHub rents for this job
-    steps:                    # the job's instructions, run in order
-      - uses: actions/checkout@v4
-      - name: Placeholder
-        run: echo "CI skeleton running..."
+# TRIGGER: run whenever a PR targeting `main` is opened, or updated with new commits.
+on:
+  pull_request:
+    branches: [main]
+
+# Least privilege: this workflow only needs to read the repository.
+permissions:
+  contents: read
+
+jobs:
+  # The job name `checks` is referenced by the branch protection ruleset
+  # (Settings -> Rules -> Rulesets -> "Protect main"). If you rename it,
+  # update the required status check there too, or merges will wait forever.
+  checks:
+    # Run on a fresh, temporary Linux machine. The version is pinned (rather
+    # than `ubuntu-latest`) so a GitHub OS upgrade can't change results unexpectedly.
+    runs-on: ubuntu-24.04
+
+    defaults:
+      run:
+        # The application lives in the `app/` folder, not the repo root, so every
+        # `run` step below executes from there (where package.json is).
+        working-directory: app
+
+    steps:
+      # Download this repository's code onto the machine, which starts out empty.
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      # Install Node.js. Version 24 matches the "engines" field in app/package.json.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      # Enable corepack, which makes the machine use the exact pnpm version
+      # pinned in package.json ("packageManager"), so CI matches local setups.
+      - name: Enable pnpm (version comes from package.json)
+        run: corepack enable
+
+      # Install dependencies. `--frozen-lockfile` fails if pnpm-lock.yaml and
+      # package.json disagree, so CI always uses the same packages as the team.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Linting (ESLint): flags likely bugs and bad patterns in the code.
+      - name: Lint
+        run: pnpm lint
+
+      # Formatting (Prettier): checks consistent code style. It only reports
+      # problems; run `pnpm format` locally to fix them.
+      - name: Check formatting
+        run: pnpm format:check
+
+      # Static type-checking (TypeScript): catches type errors without running the code.
+      - name: Type-check
+        run: pnpm typecheck
+
+      # Unit tests: runs the automated tests in app/test/.
+      - name: Unit tests
+        run: pnpm test
+
+      # Build: confirms the project compiles for production. If any step above
+      # fails, the job stops here and the PR shows a red cross.
+      - name: Build
+        run: pnpm build
