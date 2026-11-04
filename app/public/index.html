@@ -69,7 +69,7 @@
       <aside>
         <a class="brand" href="/">m<span>MarkSync</span></a>
         <p class="eyebrow">TEAM KNOWLEDGE SPACE</p>
-        <button id="home" class="nav-button">⌂ &nbsp; All documents</button>
+        <button id="home" class="nav-button">All documents</button>
         <button class="primary" id="new-document">+ New document</button
         ><label class="search-label"
           >Find a document<input
@@ -143,18 +143,40 @@
             ><button class="primary" id="save">Save title</button>
           </div>
           <div class="document-meta">
-            <span id="save-state" role="status">Saved</span
+            <span id="connection-state" role="status">Connecting…</span
+            ><span id="save-state" role="status">Saved</span
             ><span id="presence" role="status">Connecting…</span>
           </div>
           <div class="editor-actions">
             <span id="access-label"></span
-            ><button id="move-document" class="text-button">Move</button
-            ><button id="delete-document" class="text-button">
+            ><button
+              id="move-document"
+              class="text-button icon-action"
+              aria-label="Move document"
+              title="Move document"
+            >
+              Move</button
+            ><button
+              id="delete-document"
+              class="text-button icon-action"
+              aria-label="Move to Trash"
+              title="Move to Trash"
+            >
               Move to Trash</button
-            ><button id="download" class="text-button">
+            ><button
+              id="download"
+              class="text-button icon-action"
+              aria-label="Download my Markdown"
+              title="Download my Markdown"
+            >
               Download my Markdown
             </button>
-            <button id="reload-document" class="text-button">
+            <button
+              id="reload-document"
+              class="text-button icon-action"
+              aria-label="Load latest saved version"
+              title="Load latest saved version"
+            >
               Load latest saved version
             </button>
             <small id="heartbeat" role="status"
@@ -176,11 +198,24 @@
                 <div class="pane-heading">
                   MARKDOWN <span>Plain text, clear thinking</span>
                 </div>
-                <textarea
-                  id="markdown"
-                  aria-label="Markdown content"
-                  spellcheck="true"
-                ></textarea>
+                <div class="collaboration-tools">
+                  <button id="undo" disabled title="Undo your edit (Ctrl+Z)">
+                    Undo</button
+                  ><button
+                    id="redo"
+                    disabled
+                    title="Redo your edit (Ctrl+Shift+Z)"
+                  >
+                    Redo</button
+                  ><span id="cursor-users" aria-live="polite"></span>
+                </div>
+                <div class="cursor-editor">
+                  <textarea
+                    id="markdown"
+                    aria-label="Markdown content"
+                    spellcheck="true"
+                  ></textarea>
+                </div>
               </section>
               <section>
                 <div class="pane-heading">
@@ -190,6 +225,8 @@
               </section>
             </div>
           </div>
+
+          <p id="recovery-state" class="muted"></p>
           <p class="footnote">
             Live text editing · Text saves automatically while connected ·
             Titles save separately
@@ -199,6 +236,15 @@
       </main>
     </div>
     <dialog id="name-dialog">
+      <button
+        type="button"
+        class="icon-close dialog-corner"
+        aria-label="Close new item"
+        title="Close"
+        data-close="name-dialog"
+      >
+        ×
+      </button>
       <form id="name-form">
         <h2 id="name-heading">New project</h2>
         <label>Name<input id="item-name" required maxlength="100" /></label>
@@ -210,6 +256,15 @@
       </form>
     </dialog>
     <dialog id="share-dialog">
+      <button
+        type="button"
+        class="icon-close dialog-corner"
+        aria-label="Close sharing window"
+        title="Close"
+        data-close="share-dialog"
+      >
+        ×
+      </button>
       <h2 id="share-heading">Share</h2>
       <p>
         Anyone with this invitation link can sign in and accept the selected
@@ -241,6 +296,15 @@
       <button data-close="share-dialog">Done</button>
     </dialog>
     <dialog id="move-dialog">
+      <button
+        type="button"
+        class="icon-close dialog-corner"
+        aria-label="Close move window"
+        title="Close"
+        data-close="move-dialog"
+      >
+        ×
+      </button>
       <form id="move-form">
         <h2>Move document</h2>
         <p>
@@ -257,10 +321,20 @@
       </form>
     </dialog>
     <dialog id="delete-dialog">
+      <button
+        type="button"
+        class="icon-close dialog-corner"
+        aria-label="Close delete window"
+        title="Close"
+        data-close="delete-dialog"
+      >
+        ×
+      </button>
       <h2>Move to Trash?</h2>
       <p>
         Collaborators will lose access while this document is in Trash. An owner
-        can restore it later.
+        can restore it later. Any public publication will be unpublished and
+        will stay unpublished after restoring the document.
       </p>
       <div class="dialog-actions">
         <button data-close="delete-dialog">Cancel</button

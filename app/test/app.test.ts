@@ -11,7 +11,9 @@ import { createApplication } from '../src/app.js';
 import { renderMarkdown } from '../src/markdown.js';
 import { digest, tokenFrom } from '../src/session.js';
 
-async function fixture(options: { heartbeatMs?: number } = {}) {
+async function fixture(
+  options: NonNullable<Parameters<typeof createApplication>[2]> = {},
+) {
   const dir = mkdtempSync(join(tmpdir(), 'marksync-test-'));
   const app = createApplication(
     join(dir, 'test.sqlite'),
@@ -70,6 +72,158 @@ async function fixture(options: { heartbeatMs?: number } = {}) {
     },
   };
 }
+
+test('profiles default to private and disclose only explicitly visible fields', async () => {
+  const f = await fixture();
+  try {
+    const cookie = await f.signup('ProfileOwner');
+    const user = f.store.user('profileowner@example.com')!;
+    assert.equal((await f.request(`/public/profiles/${user.id}`)).status, 404);
+    assert.deepEqual(await (await f.request('/public/people')).json(), []);
+    const p = await (
+      await f.request('/me/profile', 'GET', undefined, cookie)
+    ).json();
+    Object.assign(p, {
+      displayName: 'Pen name',
+      bio: 'Public biography',
+      location: 'Secret location',
+      website: 'https://example.org',
+      visible: true,
+      directory: true,
+      showBio: true,
+    });
+    assert.equal(
+      (await f.request('/me/profile', 'PUT', p, cookie)).status,
+      200,
+    );
+    const publicProfile = await (
+      await f.request(`/public/profiles/${user.id}`)
+    ).json();
+    assert.equal(publicProfile.displayName, 'Pen name');
+    assert.equal(publicProfile.bio, 'Public biography');
+    assert.equal(publicProfile.location, '');
+    assert.equal(publicProfile.website, '');
+    assert.equal(publicProfile.email, undefined);
+    assert.equal(publicProfile.password, undefined);
+    assert.equal((await (await f.request('/public/people')).json()).length, 1);
+    assert.equal(
+      (
+        await f.request(
+          '/me/profile',
+          'PUT',
+          { ...p, website: 'javascript:alert(1)' },
+          cookie,
+        )
+      ).status,
+      400,
+    );
+    assert.equal((await f.request('/me/profile', 'PUT', p)).status, 401);
+    await f.request('/me/profile', 'PUT', { ...p, visible: false }, cookie);
+    assert.equal((await f.request(`/public/profiles/${user.id}`)).status, 404);
+    assert.deepEqual(await (await f.request('/public/people')).json(), []);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('publishing requires authorship, consent and the reviewed version; snapshots stay separate from drafts', async () => {
+  const f = await fixture();
+  try {
+    const owner = await f.signup('Writer');
+    const collaborator = await f.signup('Reader');
+    const doc = await (
+      await f.request(
+        '/documents',
+        'POST',
+        {
+          title: 'Public essay',
+          markdown: '# Hello\n<script>alert(1)</script>',
+        },
+        owner,
+      )
+    ).json();
+    f.grant(doc.id, collaborator);
+    const route = `/documents/${doc.id}/publication`;
+    const body = { version: doc.version, confirmed: true, listed: false };
+    assert.equal(
+      (await f.request(route, 'POST', body, collaborator)).status,
+      403,
+    );
+    assert.equal(
+      (await f.request(route + '-preview', 'GET', undefined, collaborator))
+        .status,
+      403,
+    );
+    assert.equal(
+      (await f.request(route, 'POST', { ...body, confirmed: false }, owner))
+        .status,
+      400,
+    );
+    assert.equal(
+      (await f.request(route, 'POST', { ...body, version: 99 }, owner)).status,
+      409,
+    );
+    const { slug } = await (await f.request(route, 'POST', body, owner)).json();
+    let published = await (
+      await f.request('/public/publications/' + slug)
+    ).json();
+    assert.match(published.html, /Hello/);
+    assert.doesNotMatch(published.html, /<script/);
+    assert.equal(published.document_id, undefined);
+    assert.equal(published.profileId, null);
+    assert.deepEqual(
+      await (await f.request('/public/publications')).json(),
+      [],
+    );
+    f.store.save(doc.id, 'Private new title', 'PRIVATE NEW DRAFT', doc.version);
+    published = await (await f.request('/public/publications/' + slug)).json();
+    assert.equal(published.title, 'Public essay');
+    assert.doesNotMatch(published.html, /PRIVATE NEW DRAFT/);
+    assert.equal((await f.request(route, 'POST', body, owner)).status, 409);
+    assert.equal(
+      (
+        await f.request(
+          '/me/publications/' + slug,
+          'DELETE',
+          undefined,
+          collaborator,
+        )
+      ).status,
+      404,
+    );
+    const updated = await (
+      await f.request(
+        route,
+        'POST',
+        { ...body, version: doc.version + 1, listed: true },
+        owner,
+      )
+    ).json();
+    assert.equal(updated.slug, slug);
+    assert.equal(
+      (await (await f.request('/public/publications')).json()).length,
+      1,
+    );
+    await f.request(`/documents/${doc.id}`, 'DELETE', undefined, owner);
+    assert.equal((await f.request('/public/publications/' + slug)).status, 404);
+    await f.request(`/documents/${doc.id}/restore`, 'POST', {}, owner);
+    assert.equal((await f.request('/public/publications/' + slug)).status, 404);
+    await f.request(
+      route,
+      'POST',
+      { ...body, version: doc.version + 1 },
+      owner,
+    );
+    assert.equal(
+      (await f.request('/me/publications/' + slug, 'DELETE', undefined, owner))
+        .status,
+      200,
+    );
+    assert.equal((await f.request('/public/publications/' + slug)).status, 404);
+  } finally {
+    await f.cleanup();
+  }
+});
 
 test('concurrent duplicate signups create exactly one account', async () => {
   const f = await fixture();
@@ -768,6 +922,7 @@ async function liveClient(
   f: Awaited<ReturnType<typeof fixture>>,
   cookie: string,
   id: number,
+  extra: Record<string, unknown> = {},
 ) {
   const ws = new WebSocket(f.url.replace('http:', 'ws:') + '/ws', {
     headers: { cookie, origin: 'http://localhost:3000' },
@@ -789,7 +944,9 @@ async function liveClient(
     return new Promise((resolve) => waiters.push({ type, resolve }));
   };
   await once(ws, 'open');
-  ws.send(JSON.stringify({ type: 'join', documentId: id, live: true }));
+  ws.send(
+    JSON.stringify({ type: 'join', documentId: id, live: true, ...extra }),
+  );
   return { ws, next };
 }
 
@@ -1008,3 +1165,312 @@ test(
     }
   },
 );
+
+test(
+  'protocol 2 sends deltas, authenticates cursor identities, and removes departed peers',
+  { timeout: 10000 },
+  async () => {
+    const f = await fixture();
+    const connections: WebSocket[] = [];
+    const y = new Y.Doc();
+    try {
+      const a = await f.signup('CursorAlice'),
+        b = await f.signup('CursorBob');
+      const doc = f.store.create(
+        'Cursors',
+        f.store.user('cursoralice@example.com')!.id,
+        'x'.repeat(4000),
+      );
+      f.grant(doc.id, b);
+      const ca = await liveClient(f, a, doc.id, { protocol: 2 });
+      const cb = await liveClient(f, b, doc.id, { protocol: 2 });
+      connections.push(ca.ws, cb.ws);
+      Y.applyUpdate(
+        y,
+        Buffer.from(String((await ca.next('sync')).update), 'base64'),
+      );
+      await cb.next('sync');
+      const position = Buffer.from(
+        Y.encodeRelativePosition(
+          Y.createRelativePositionFromTypeIndex(y.getText('markdown'), 3),
+        ),
+      ).toString('base64');
+      ca.ws.send(
+        JSON.stringify({
+          type: 'awareness',
+          name: 'Spoofed',
+          cursor: { anchor: position, head: position },
+        }),
+      );
+      let awareness = await cb.next('awareness');
+      while (!(awareness.peers as unknown[]).length)
+        awareness = await cb.next('awareness');
+      const peer = (awareness.peers as { name: string }[])[0];
+      assert.equal(peer.name, 'CursorAlice');
+      let delta: Uint8Array = new Uint8Array();
+      y.on('update', (u) => {
+        delta = u;
+      });
+      y.getText('markdown').insert(3, 'new');
+      ca.ws.send(
+        JSON.stringify({
+          type: 'update',
+          seq: 1,
+          update: Buffer.from(delta).toString('base64'),
+        }),
+      );
+      const update = await cb.next('sync');
+      assert(
+        String(update.update).length < 200,
+        'live edits must not send the whole 4 KB document',
+      );
+      let ack = await ca.next('sync');
+      while (ack.ack !== 1) ack = await ca.next('sync');
+      const version = f.store.document(doc.id)!.version;
+      ca.ws.send(
+        JSON.stringify({
+          type: 'update',
+          seq: 2,
+          update: Buffer.from(delta).toString('base64'),
+        }),
+      );
+      ack = await ca.next('sync');
+      while (ack.ack !== 2) ack = await ca.next('sync');
+      assert.equal(f.store.document(doc.id)!.version, version);
+      const resumed = await liveClient(f, a, doc.id, {
+        protocol: 2,
+        vector: Buffer.from(Y.encodeStateVector(y)).toString('base64'),
+      });
+      connections.push(resumed.ws);
+      assert(String((await resumed.next('sync')).update).length < 20);
+      ca.ws.close();
+      awareness = await cb.next('awareness');
+      while ((awareness.peers as unknown[]).length)
+        awareness = await cb.next('awareness');
+      assert.deepEqual(awareness.peers, []);
+    } finally {
+      connections.forEach((ws) => ws.terminate());
+      y.destroy();
+      await f.cleanup();
+    }
+  },
+);
+
+test(
+  'protocol 2 rejects invalid cursors and replay after edit access becomes read-only',
+  { timeout: 10000 },
+  async () => {
+    const f = await fixture();
+    const connections: WebSocket[] = [];
+    try {
+      const a = await f.signup('RecoveryOwner'),
+        b = await f.signup('RecoveryReader');
+      const doc = f.store.create(
+        'Restricted',
+        f.store.user('recoveryowner@example.com')!.id,
+        'safe',
+      );
+      f.grant(doc.id, b, 'read');
+      const reader = await liveClient(f, b, doc.id, { protocol: 2 });
+      connections.push(reader.ws);
+      await reader.next('sync');
+      const closed = once(reader.ws, 'close');
+      reader.ws.send(
+        JSON.stringify({ type: 'update', seq: 1, update: 'AAA=' }),
+      );
+      assert.equal((await closed)[0], 1008);
+      assert.equal(f.store.document(doc.id)!.markdown, 'safe');
+      const owner = await liveClient(f, a, doc.id, { protocol: 2 });
+      connections.push(owner.ws);
+      await owner.next('sync');
+      const invalid = once(owner.ws, 'close');
+      owner.ws.send(
+        JSON.stringify({
+          type: 'awareness',
+          cursor: { anchor: '?', head: '?' },
+        }),
+      );
+      assert.equal((await invalid)[0], 1008);
+    } finally {
+      connections.forEach((ws) => ws.terminate());
+      await f.cleanup();
+    }
+  },
+);
+
+test('comments enforce document access, selection version and resolution ownership', async () => {
+  const f = await fixture();
+  try {
+    const a = await f.signup('CommentOwner'),
+      b = await f.signup('CommentEditor'),
+      r = await f.signup('CommentReader'),
+      outsider = await f.signup('CommentOutsider');
+    const doc = f.store.create(
+      'Comments',
+      f.store.user('commentowner@example.com')!.id,
+      'A selected passage',
+    );
+    f.grant(doc.id, b);
+    f.grant(doc.id, r, 'read');
+    const path = `/documents/${doc.id}/comments`;
+    const payload = {
+      body: 'Please clarify this.',
+      start: 2,
+      end: 10,
+      version: 1,
+    };
+    assert.equal((await f.request(path)).status, 401);
+    assert.equal(
+      (await f.request(path, 'GET', undefined, outsider)).status,
+      404,
+    );
+    assert.equal(
+      (await f.request(path, 'POST', payload, outsider)).status,
+      404,
+    );
+    assert.equal((await f.request(path, 'POST', payload, r)).status, 403);
+    assert.equal(
+      (await f.request(path, 'POST', { ...payload, version: 0 }, b)).status,
+      409,
+    );
+    assert.equal(
+      (await f.request(path, 'POST', { ...payload, end: 999 }, b)).status,
+      400,
+    );
+    assert.equal(
+      (await f.request(path, 'POST', { ...payload, body: ' ' }, b)).status,
+      400,
+    );
+    const made = await f.request(path, 'POST', payload, b);
+    assert.equal(made.status, 201);
+    const { id } = await made.json();
+    const list = await (await f.request(path, 'GET', undefined, r)).json();
+    assert.equal(list.length, 1);
+    assert.equal(list[0].quote, 'selected');
+    assert.equal(list[0].authorName, 'CommentEditor');
+    assert.equal(
+      (await f.request(`${path}/${id}`, 'PATCH', { resolved: true }, r)).status,
+      403,
+    );
+    assert.equal(
+      (await f.request(`${path}/${id}`, 'PATCH', { resolved: true }, outsider))
+        .status,
+      404,
+    );
+    assert.equal(
+      (await f.request(`${path}/${id}`, 'PATCH', { resolved: true }, a)).status,
+      200,
+    );
+    assert.equal(
+      (await f.request(`${path}/${id}`, 'PATCH', { resolved: false }, b))
+        .status,
+      200,
+    );
+    f.store.save(doc.id, 'Comments', 'Changed document', 1);
+    assert.equal(
+      (await (await f.request(path, 'GET', undefined, a)).json())[0].quote,
+      'selected',
+    );
+    await f.request(`/documents/${doc.id}`, 'DELETE', undefined, a);
+    assert.equal((await f.request(path, 'GET', undefined, b)).status, 404);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('unconfigured writing tools report not scanned and cannot call AI', async () => {
+  const f = await fixture({ assistant: {} });
+  try {
+    const a = await f.signup('ToolsOwner'),
+      b = await f.signup('ToolsStranger');
+    const doc = f.store.create(
+      'Review',
+      f.store.user('toolsowner@example.com')!.id,
+      'Text',
+    );
+    const path = `/documents/${doc.id}/writing`;
+    assert.equal(
+      (await f.request(path + '/status', 'GET', undefined, b)).status,
+      404,
+    );
+    const status = await (
+      await f.request(path + '/status', 'GET', undefined, a)
+    ).json();
+    assert.equal(status.assistant, false);
+    const report = await (
+      await f.request(path + '/report', 'GET', undefined, a)
+    ).json();
+    assert.equal(report.similarity.status, 'not_scanned');
+    assert.equal(report.similarity.score, null);
+    assert.equal(report.aiDetection.score, null);
+    assert.equal(report.contentHash.length, 64);
+    assert.equal(
+      (
+        await f.request(
+          path + '/assist',
+          'POST',
+          { action: 'summarise', version: 1, consent: true },
+          a,
+        )
+      ).status,
+      503,
+    );
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('AI adapter requires owner consent and version, bounds output, and never alters documents', async () => {
+  let calls = 0;
+  const request: typeof fetch = async (_url, options) => {
+    ++calls;
+    const payload = JSON.parse(String(options?.body));
+    assert.equal(payload.store, false);
+    assert.equal(payload.max_output_tokens, 1000);
+    assert.equal(payload.input, 'Original content');
+    return new Response(
+      JSON.stringify({
+        status: 'completed',
+        output: [
+          {
+            type: 'message',
+            content: [{ type: 'output_text', text: 'Suggestion only' }],
+          },
+        ],
+      }),
+      { status: 200 },
+    );
+  };
+  const f = await fixture({
+    assistant: { key: 'test-only-key', model: 'test-model', request },
+  });
+  try {
+    const a = await f.signup('AIOwner'),
+      b = await f.signup('AIEditor');
+    const doc = f.store.create(
+      'Review',
+      f.store.user('aiowner@example.com')!.id,
+      'Original content',
+    );
+    f.grant(doc.id, b);
+    const path = `/documents/${doc.id}/writing/assist`,
+      body = { action: 'summarise', version: 1, consent: true };
+    assert.equal((await f.request(path, 'POST', body, b)).status, 403);
+    assert.equal(
+      (await f.request(path, 'POST', { ...body, consent: false }, a)).status,
+      400,
+    );
+    assert.equal(
+      (await f.request(path, 'POST', { ...body, version: 99 }, a)).status,
+      409,
+    );
+    assert.equal(calls, 0);
+    const result = await f.request(path, 'POST', body, a);
+    assert.equal(result.status, 200);
+    assert.equal((await result.json()).text, 'Suggestion only');
+    assert.equal(calls, 1);
+    assert.equal(f.store.document(doc.id)!.markdown, 'Original content');
+  } finally {
+    await f.cleanup();
+  }
+});

@@ -1,3 +1,6 @@
+import { attachWritingTools, type AssistantConfig } from './writing-tools.js';
+import { attachComments } from './comments.js';
+import { community } from './community.js';
 import express from 'express';
 import { attachAccessRoutes } from './access-routes.js';
 import rateLimit from 'express-rate-limit';
@@ -13,10 +16,11 @@ const derive = promisify(scrypt);
 export function createApplication(
   database: string,
   origin: string,
-  options: { heartbeatMs?: number } = {},
+  options: { heartbeatMs?: number; assistant?: AssistantConfig } = {},
 ) {
   const store = createStore(database);
   const app = express();
+  const social = community(store);
   const server = createServer(app);
   const presence = attachPresence(server, store, origin, options.heartbeatMs);
   app.disable('x-powered-by');
@@ -119,6 +123,7 @@ export function createApplication(
       next(error);
     }
   });
+  social.publicRoutes(app);
   app.use('/api', (req, res, next) => {
     const user = store.session(digest(tokenFrom(req.headers.cookie)));
     if (!user) {
@@ -214,6 +219,16 @@ export function createApplication(
     next();
   });
   attachAccessRoutes(app, store, () => presence.changed());
+  social.privateRoutes(app);
+  attachComments(app, store);
+  attachWritingTools(
+    app,
+    store,
+    options.assistant ?? {
+      key: process.env.OPENAI_API_KEY,
+      model: process.env.OPENAI_MODEL,
+    },
+  );
   app.get('/api/documents/:id', (req, res) => {
     const doc = store.document(Number(req.params.id));
     if (!doc || !store.role('document', doc.id, res.locals.user.id)) {

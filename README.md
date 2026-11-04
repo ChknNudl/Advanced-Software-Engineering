@@ -117,3 +117,32 @@ For more information, see:
 Task 1 is designed to run locally. Public cloud deployment is not required at this stage.
 
 Remote collaboration between computers requires a reachable server deployment.
+
+## Task 2: collaboration and chaos tests
+
+Requires **Node.js 24** and **pnpm 11.25.0**. From the repository root:
+
+```sh
+cd app
+pnpm install --frozen-lockfile
+pnpm test:chaos
+```
+
+On Windows PowerShell, use `pnpm.cmd` for these commands. The chaos suite starts its own temporary local server and SQLite database; do not start the site first. It uses three editing clients and one read-only observer over real WebSockets, with simulated message delay, loss, duplication and reordering. It checks convergence against all generated edits, persistence and acknowledgement queues, and includes a negative control that must detect loss when recovery is disabled. The default runs 100 generated scenarios, plus focused regression and replay tests.
+
+To reproduce a failure in PowerShell, use the seed and path printed by fast-check:
+
+```powershell
+$env:CHAOS_SEED = '20261104'
+$env:CHAOS_RUNS = '100'
+# Set CHAOS_PATH only when replaying the exact path reported by a failure:
+# $env:CHAOS_PATH = 'paste-the-reported-path'
+pnpm.cmd test:chaos
+Remove-Item Env:CHAOS_SEED, Env:CHAOS_RUNS, Env:CHAOS_PATH -ErrorAction SilentlyContinue
+```
+
+On macOS/Linux: `CHAOS_SEED=20261104 CHAOS_RUNS=100 pnpm test:chaos`. Add `CHAOS_PATH='reported-path'` to replay a shrunk counterexample. Raise CHAOS_RUNS up to 2000 for additional exploration. Seeds reproduce a bounded experiment; passing tests are not a proof for every possible execution.
+
+`pnpm check` runs all local quality gates. GitHub Actions runs the chaos suite inside `checks` with seeds 20261104 and 11042026 (100 scenarios each). **The repository owner must require `checks` in the main-branch ruleset**; workflow execution alone does not enforce a merge gate.
+
+See [Task 2 design and demonstration](app/docs/TASK2.md), [AI debugging log](app/docs/TASK2-AI-LOG.md), and the [two-page submission report](app/output/pdf/marksync-task2-report.pdf). After peer review and successful CI, merge the PR, tag the final main commit, and email the tag, report and merged PR URL. Do not move the existing Task 1 tag.
