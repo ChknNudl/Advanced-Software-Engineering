@@ -2,7 +2,11 @@
 
 MarkSync is our Advanced Software Engineering group project: a Markdown workspace with projects, folders, permission-based sharing and live collaborative text editing. Task 1 establishes a runnable end-to-end foundation, explicit architecture boundaries, and repeatable quality checks.
 
-Final group repository: the groupmate’s repository (URL pending). The current local Git remote is the original personal repository, https://github.com/skydayrainy/ASE-project. This implementation has not been pushed there. Do not assume a fresh clone of that URL contains this work.
+Group repository: https://github.com/ChknNudl/Advanced-Software-Engineering. The application lives in `app/`; run the commands below from that directory.
+
+## Profiles and public works
+
+Use **My profile & settings** to edit personal information and choose which fields are public. Profiles are private by default. Authors can publish reviewed document snapshots, share read-only public links, and unpublish their works. **Explore works & people** provides search, reading-time estimates, and an optional people directory. See [Profiles and publishing](docs/PROFILES-AND-PUBLISHING.md) for privacy rules, instructions and implementation notes.
 
 ## Run in Visual Studio Code
 
@@ -17,7 +21,7 @@ pnpm dev
 
 Open http://localhost:3000 and create an account. Use **File > Open Folder** to open this repository in VS Code. The included launch configuration lets you debug with F5 after installing dependencies. Stop `pnpm dev` before starting the debugger, because both use port 3000.
 
-On Windows use `pnpm.cmd` if PowerShell blocks the `.ps1` wrapper. If pnpm is not recognised, check `node --version` and `npm.cmd --version`, install pnpm as above, then open a new terminal. After dependencies are installed, `npm.cmd run dev` also starts the site. No ChatGPT installation or account is required. In this particular local folder, `node.exe` was installed into the project directory: `.\node.exe --import tsx --watch src/main.ts` is a temporary local fallback. Do not upload that executable to GitHub.
+On Windows use `pnpm.cmd` if PowerShell blocks the `.ps1` wrapper. If pnpm is not recognised, check `node --version` and `npm.cmd --version`, install pnpm as above, then open a new terminal. After dependencies are installed, `npm.cmd run dev` also starts the site. No ChatGPT installation or account is required. Use the installed Node.js runtime; do not put its installer or executable inside the repository.
 
 Keep the terminal open; Ctrl+C stops the site. If port 3000 is occupied, stop the other instance or set `PORT` and matching `APP_ORIGIN`. After the group publishes its source, teammates can clone the confirmed group URL and follow these same installation steps.
 
@@ -43,7 +47,7 @@ The container stores SQLite in a named volume. `docker compose down` preserves i
 - Signup and login with salted scrypt password hashes, random HttpOnly session cookies, and database-backed session expiry.
 - Private documents, projects and project folders. Project invitations cover current and future documents in the project. Document invitations share just one document. Owners choose read-only or edit links, revoke them, move documents, and use Trash/restore. Recipients sign in before accepting access.
 - Markdown rendering with HTML sanitization and a restrictive browser content policy.
-- A real WebSocket connection: opening a document sends `join`; the server broadcasts its online roster. Every 15 seconds the browser sends application `ping`; the returned `pong` updates a visible verification time. Dead connections are detected with server control-frame heartbeats; transient failures reconnect with capped backoff.
+- A real WebSocket connection: opening a document sends `join`; the server broadcasts its online roster. Every three seconds the browser sends application `ping`; the returned `pong` updates a visible verification time. Dead connections are detected with server control-frame heartbeats; transient failures reconnect with capped backoff.
 - Yjs merges concurrent Markdown edits over authenticated WebSockets. Accepted updates persist both CRDT state and raw Markdown in SQLite, then broadcast to connected collaborators. Text saves automatically; titles save separately using version checks. Permission checks apply to HTTP and every socket update.
 - Download the current editor contents as Markdown before loading the latest saved version. Refresh the document list to discover a teammate's new documents. Drafts are held in the page, not a durable offline store.
 - Automated lint, format enforcement, strict backend type checking, tests and compilation in GitHub Actions.
@@ -77,7 +81,7 @@ docs/                 Introduction, project plan, collaboration and demo guide
 .vscode/              Editor/debug configuration
 ```
 
-Runtime options: `PORT` (3000), `HOST` (127.0.0.1), `DATABASE_PATH` (`data/marksync.sqlite`), and `APP_ORIGIN` (`http://localhost:<PORT>`). The origin must exactly match the browser address, including port. No `.env` loader is used: set variables in your shell or container. Cookies become Secure for an HTTPS origin. An expired session requires signing in again; unsaved text is not automatically uploaded.
+Runtime options: `PORT` (3000), `HOST` (127.0.0.1), `DATABASE_PATH` (`data/marksync.sqlite`), and `APP_ORIGIN` (`http://localhost:<PORT>`). The origin must exactly match the browser address, including port. No `.env` loader is used: set variables in your shell or container. Cookies become Secure for an HTTPS origin. An expired session requires signing in again. Recovery copies are restored only after a document access check, and queued edits are sent only after an authorised editing connection is established.
 
 ## Coursework handover
 
@@ -100,3 +104,37 @@ See [deployment instructions](docs/DEPLOYMENT.md) for publishing after the group
 On the first run of this version, SQLite creates a consistent `*.before-collaboration-*.bak` file beside the database before adding organisation and collaboration tables/columns. Existing documents and authors are preserved. The previous everyone-can-edit policy is replaced: old documents become private to their authors until shared. Stop older server instances before upgrading. Do not run old and new versions against the same database. Backups contain account and document data; keep them private.
 
 See [COLLABORATION.md](docs/COLLABORATION.md) for workflows, access rules and current limits.
+
+## Task 2 preparation
+
+The editor now uses incremental Yjs updates, reconnect state vectors, tab-scoped draft recovery, shared cursors/selections, and personal undo/redo. Connection and save status distinguish pending text from acknowledged saves. Editing pauses while disconnected.
+
+Read [TASK2-PREPARATION.md](docs/TASK2-PREPARATION.md) for the protocol, guarantees, test coverage, team handover and remaining assessment checks. Run `pnpm check` from `app/`; generated network tests are included in `pnpm test`. These changes prepare for Task 2; they do not establish compliance with a brief that has not yet been reviewed.
+
+## Task 2: collaboration and chaos tests
+
+Requires **Node.js 24** and **pnpm 11.25.0**. From this application directory:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm test:chaos
+```
+
+On Windows PowerShell, use `pnpm.cmd` for these commands. The chaos suite starts its own temporary local server and SQLite database; do not start the site first. It uses three editing clients and one read-only observer over real WebSockets, with simulated message delay, loss, duplication and reordering. It checks convergence against all generated edits, persistence and acknowledgement queues, and includes a negative control that must detect loss when recovery is disabled. The default runs 100 generated scenarios, plus focused regression and replay tests.
+
+To reproduce a failure in PowerShell, use the seed and path printed by fast-check:
+
+```powershell
+$env:CHAOS_SEED = '20261104'
+$env:CHAOS_RUNS = '100'
+# Set CHAOS_PATH only when replaying the exact path reported by a failure:
+# $env:CHAOS_PATH = 'paste-the-reported-path'
+pnpm.cmd test:chaos
+Remove-Item Env:CHAOS_SEED, Env:CHAOS_RUNS, Env:CHAOS_PATH -ErrorAction SilentlyContinue
+```
+
+On macOS/Linux: `CHAOS_SEED=20261104 CHAOS_RUNS=100 pnpm test:chaos`. Add `CHAOS_PATH='reported-path'` to replay a shrunk counterexample. Raise CHAOS_RUNS up to 2000 for additional exploration. Seeds reproduce a bounded experiment; passing tests are not a proof for every possible execution.
+
+`pnpm check` runs all local quality gates. GitHub Actions runs the chaos suite inside `checks` with seeds 20261104 and 11042026 (100 scenarios each). **The repository owner must require `checks` in the main-branch ruleset**; workflow execution alone does not enforce a merge gate.
+
+See [Task 2 design](docs/TASK2.md), [AI debugging log](docs/TASK2-AI-LOG.md), and [submission report](output/pdf/marksync-task2-report.pdf).

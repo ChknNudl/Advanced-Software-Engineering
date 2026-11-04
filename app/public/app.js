@@ -1,4 +1,8 @@
-import * as Y from 'yjs';
+import { setupWritingTools } from './writing-tools.js';
+import { setupWorkspaceTools } from './workspace-tools.js';
+import { setupCommunity } from './community.js';
+import { Replica, RecoveryStore } from './collaboration.js';
+import { CursorLayer } from './cursors.js';
 const $ = (id) => document.getElementById(id);
 let signup = false,
   current = null,
@@ -10,24 +14,18 @@ let editing = false,
   dirty = false,
   titleDirty = false,
   trash = false;
-let socket, reconnect, heartbeat, previewTimer, ydoc;
+let socket, reconnect, heartbeat, previewTimer, replica, recovery, sendTimer;
 let previewSequence = 0,
   openSequence = 0,
-  reconnectDelay = 1000,
-  sequence = 0;
+  reconnectDelay = 1000;
 let ready = false,
   composing = false,
   deferred = [];
-const pending = new Map();
+let pending = new Map();
+const cursors = new CursorLayer($('markdown'));
 let invitation = new URLSearchParams(location.hash.slice(1)).get('invite');
 let shareTarget, creating, activeUser;
 const canEdit = () => current && ['owner', 'edit'].includes(current.role);
-const encode = (data) => {
-  let text = '';
-  for (const byte of data) text += String.fromCharCode(byte);
-  return btoa(text);
-};
-const decode = (data) => Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
 async function api(path, method = 'GET', body) {
   const res = await fetch('/api' + path, {
     method,
@@ -53,15 +51,34 @@ function discard() {
     )
   );
 }
+function persistRecovery() {
+  if (!current || !replica || !recovery || !canEdit()) return;
+  try {
+    recovery.save(current.id, replica, titleDirty ? $('title').value : null);
+  } catch {
+    $('recovery-state').textContent =
+      'Recovery unavailable — download unsaved work before leaving.';
+  }
+}
 function status() {
   dirty = titleDirty || pending.size > 0;
   $('save-state').textContent = pending.size
-    ? 'Syncing text…'
+    ? `${pending.size} pending edit${pending.size === 1 ? '' : 's'}${ready ? ' · syncing…' : ' · waiting for connection'}`
     : titleDirty
       ? 'Text synced · title not saved'
-      : `Saved · version ${current?.version ?? 1}`;
+      : ready
+        ? `Saved · version ${current?.version ?? 1}`
+        : 'Waiting to confirm saved state';
+  $('connection-state').textContent = ready
+    ? 'Connected'
+    : 'Disconnected · reconnecting or access required';
+  $('connection-state').classList.toggle('connection-paused', !ready);
+  $('undo').disabled = !ready || !editing || !replica?.undo.canUndo();
+  $('redo').disabled = !ready || !editing || !replica?.undo.canRedo();
+  persistRecovery();
 }
 function setEditing(value) {
+  $('publish-document').hidden = current?.author !== activeUser?.id;
   editing = !!value && !!canEdit();
   $('document-heading').textContent = $('title').value;
   $('document-heading').hidden = editing;
@@ -73,6 +90,9 @@ function setEditing(value) {
   $('edit-mode').disabled = !canEdit();
   $('edit-mode').textContent = editing ? 'Read document' : 'Edit document';
   $('edit-mode').setAttribute('aria-pressed', String(editing));
+  status();
+  cursors.render(replica);
+  sendCursor();
 }
 function contents() {
   $('contents-links').replaceChildren();
@@ -112,6 +132,9 @@ function schedulePreview() {
 function stopSocket() {
   ready = false;
   clearTimeout(reconnect);
+  clearTimeout(sendTimer);
+  cursors.set([], replica);
+  workspaceTools.presence([]);
   clearInterval(heartbeat);
   if (socket) {
     socket.onclose = null;
@@ -122,34 +145,48 @@ function stopSocket() {
   }
 }
 function flush() {
-  if (ready && socket?.readyState === WebSocket.OPEN && canEdit())
-    for (const [seq, update] of pending)
-      socket.send(JSON.stringify({ type: 'update', seq, update }));
+  clearTimeout(sendTimer);
+  if (ready && socket?.readyState === WebSocket.OPEN && canEdit()) {
+    const update = replica.batch();
+    persistRecovery();
+    if (update) socket.send(JSON.stringify({ type: 'update', ...update }));
+  }
 }
+function sendCursor() {
+  if (!ready || socket?.readyState !== WebSocket.OPEN || !replica) return;
+  const cursor =
+    editing && document.activeElement === $('markdown')
+      ? replica.selection(
+          $('markdown').selectionStart,
+          $('markdown').selectionEnd,
+        )
+      : null;
+  socket.send(JSON.stringify({ type: 'awareness', cursor }));
+}
+let cursorTimer;
+for (const event of ['select', 'keyup', 'mouseup', 'focus', 'blur'])
+  $('markdown').addEventListener(event, () => {
+    clearTimeout(cursorTimer);
+    cursorTimer = setTimeout(sendCursor, 80);
+  });
 function sync(message) {
-  if (!current || !ydoc) return;
-  const text = ydoc.getText('markdown');
-  const start = Y.createRelativePositionFromTypeIndex(
-    text,
-    Math.min($('markdown').selectionStart, text.length),
+  if (!current || !replica) return;
+  const selection = replica.selection(
+    $('markdown').selectionStart,
+    $('markdown').selectionEnd,
   );
-  const end = Y.createRelativePositionFromTypeIndex(
-    text,
-    Math.min($('markdown').selectionEnd, text.length),
-  );
-  Y.applyUpdate(ydoc, decode(message.update), 'remote');
-  $('markdown').value = text.toString();
-  const a = Y.createAbsolutePositionFromRelativePosition(start, ydoc),
-    b = Y.createAbsolutePositionFromRelativePosition(end, ydoc);
-  if (a && b) $('markdown').setSelectionRange(a.index, b.index);
-  current.version = message.version;
+  replica.receive(message.update, message.ack);
+  $('markdown').value = replica.text.toString();
+  const position = replica.resolve(selection);
+  if (position) $('markdown').setSelectionRange(position.start, position.end);
+  const fresh = message.version >= current.version;
+  current.version = Math.max(current.version, message.version);
   current.role = message.role;
-  if (!titleDirty) {
+  if (!titleDirty && fresh) {
     current.title = message.title;
     $('title').value = message.title;
     $('document-heading').textContent = message.title;
   }
-  if (message.ack !== undefined) pending.delete(message.ack);
   const first = !ready;
   ready = true;
   $('access-label').textContent =
@@ -160,6 +197,7 @@ function sync(message) {
         : 'Can edit';
   setEditing(editing);
   status();
+  cursors.render(replica);
   schedulePreview();
   if (first) flush();
 }
@@ -175,13 +213,20 @@ function connect() {
   socket = ws;
   ws.onopen = () => {
     reconnectDelay = 1000;
-    ws.send(
-      JSON.stringify({ type: 'join', documentId: current.id, live: true }),
-    );
+    ws.send(JSON.stringify(replica.joinMessage(current.id)));
     heartbeat = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN)
+      if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'ping' }));
-    }, 15000);
+        if (!ready) ws.send(JSON.stringify(replica.joinMessage(current.id)));
+        else {
+          // Retry unacknowledged edits AND request missing remote state even on an open socket.
+          const messages = replica.repairMessages(canEdit());
+          persistRecovery();
+          for (const message of messages) ws.send(JSON.stringify(message));
+        }
+        sendCursor();
+      }
+    }, 3000);
   };
   ws.onmessage = (event) => {
     const message = JSON.parse(event.data);
@@ -189,6 +234,12 @@ function connect() {
       if (composing) deferred.push(message);
       else sync(message);
     }
+    if (message.type === 'awareness')
+      cursors.set(
+        message.peers.filter((p) => p.peer !== message.self),
+        replica,
+      );
+    if (message.type === 'presence') workspaceTools.presence(message.users);
     if (message.type === 'presence')
       $('presence').textContent =
         `● ${message.users.length} online · ${message.users.map((u) => u.name).join(', ')}`;
@@ -198,6 +249,7 @@ function connect() {
     if (message.type === 'error') {
       ready = false;
       $('markdown').readOnly = true;
+      status();
       notice(new Error(message.error));
     }
   };
@@ -205,6 +257,9 @@ function connect() {
     ready = false;
     clearInterval(heartbeat);
     $('markdown').readOnly = true;
+    cursors.set([], replica);
+    workspaceTools.presence([]);
+    status();
     $('heartbeat').textContent = 'Connection paused';
     $('presence').textContent =
       'Offline · editing paused; your text remains here';
@@ -220,21 +275,15 @@ function connect() {
   };
 }
 function initDocument() {
-  ydoc?.destroy();
-  ydoc = new Y.Doc();
-  pending.clear();
-  sequence = 0;
+  replica?.destroy();
+  replica = new Replica(() => {
+    status();
+    clearTimeout(sendTimer);
+    sendTimer = setTimeout(flush, 120);
+  });
+  pending = replica.pending;
   deferred = [];
   composing = false;
-  ydoc.on('update', (update, origin) => {
-    if (origin !== 'local') return;
-    const seq = ++sequence,
-      data = encode(update);
-    pending.set(seq, data);
-    status();
-    if (ready && socket?.readyState === WebSocket.OPEN)
-      socket.send(JSON.stringify({ type: 'update', seq, update: data }));
-  });
 }
 function options(select, items, empty, value = '') {
   select.replaceChildren(new Option(empty, ''));
@@ -331,6 +380,27 @@ async function openDocument(id) {
         ? 'Owner'
         : 'Can edit';
   $('notice').textContent = '';
+  $('recovery-state').textContent = recovery
+    ? 'Unsent edits are kept in this tab until synced; sign-out clears recovery.'
+    : 'Tab recovery is unavailable. Download unsaved work before leaving.';
+  try {
+    const saved = recovery?.load(doc.id);
+    if (saved && canEdit()) {
+      replica.restore(saved);
+      if (typeof saved.title === 'string') {
+        $('title').value = saved.title;
+        titleDirty = true;
+      }
+      $('markdown').value = replica.text.toString();
+      $('recovery-state').textContent =
+        'Recovered edits from this tab. Rechecking access before syncing.';
+    } else if (saved) {
+      $('recovery-state').textContent =
+        'A recovery copy exists, but editing access is required to restore it.';
+    }
+  } catch (error) {
+    notice(error);
+  }
   $('conflict').hidden = true;
   setEditing(false);
   status();
@@ -345,8 +415,8 @@ function home() {
   dirty = false;
   titleDirty = false;
   pending.clear();
-  ydoc?.destroy();
-  ydoc = null;
+  replica?.destroy();
+  replica = null;
   ++openSequence;
   ++previewSequence;
   clearTimeout(previewTimer);
@@ -376,6 +446,11 @@ async function createDocument() {
 }
 async function enter(user) {
   activeUser = user;
+  try {
+    recovery = new RecoveryStore(sessionStorage, user.id);
+  } catch {
+    recovery = null;
+  }
   signedIn = true;
   $('auth').hidden = true;
   $('workspace').hidden = false;
@@ -446,6 +521,8 @@ $('logout').onclick = async () => {
     } catch (error) {
       if (error.status !== 401) throw error;
     }
+    recovery?.clear();
+    recovery = null;
     signedIn = false;
     home();
     $('workspace').hidden = true;
@@ -485,44 +562,41 @@ $('title').oninput = () => {
   status();
 };
 function editText() {
-  if (!ready || !canEdit() || !ydoc) return;
-  const text = ydoc.getText('markdown'),
-    old = text.toString(),
-    next = $('markdown').value;
-  if (next.length > 100000) {
-    $('markdown').value = old;
-    notice(new Error('Document limit is 100,000 characters.'));
-    return;
+  if (!ready || !canEdit() || !replica) return;
+  try {
+    replica.replace($('markdown').value);
+  } catch (error) {
+    $('markdown').value = replica.text.toString();
+    notice(error);
   }
-  let start = 0;
-  while (
-    start < old.length &&
-    start < next.length &&
-    old[start] === next[start]
-  )
-    start++;
-  if (start > 0 && /[\uD800-\uDBFF]/.test(old[start - 1])) start--;
-  let end = 0;
-  while (
-    end < old.length - start &&
-    end < next.length - start &&
-    old[old.length - 1 - end] === next[next.length - 1 - end]
-  )
-    end++;
-  if (
-    end > 0 &&
-    (/[\uDC00-\uDFFF]/.test(old[old.length - end]) ||
-      /[\uDC00-\uDFFF]/.test(next[next.length - end]))
-  )
-    end--;
-  ydoc.transact(() => {
-    const remove = old.length - start - end;
-    if (remove) text.delete(start, remove);
-    const insert = next.slice(start, next.length - end);
-    if (insert) text.insert(start, insert);
-  }, 'local');
+  status();
+  cursors.render(replica);
+  sendCursor();
   schedulePreview();
 }
+function undoRedo(redo = false) {
+  if (!ready || !editing || !canEdit() || composing) return;
+  replica.undo.stopCapturing();
+  if (redo) replica.undo.redo();
+  else replica.undo.undo();
+  $('markdown').value = replica.text.toString();
+  status();
+  cursors.render(replica);
+  sendCursor();
+  schedulePreview();
+}
+$('undo').onclick = () => undoRedo();
+$('redo').onclick = () => undoRedo(true);
+$('markdown').addEventListener('keydown', (event) => {
+  if (
+    (event.ctrlKey || event.metaKey) &&
+    !event.altKey &&
+    ['z', 'y'].includes(event.key.toLowerCase())
+  ) {
+    event.preventDefault();
+    undoRedo(event.shiftKey || event.key.toLowerCase() === 'y');
+  }
+});
 $('markdown').oninput = () => {
   if (!composing) editText();
 };
@@ -743,6 +817,55 @@ window.addEventListener('hashchange', () => {
   invitation = token;
   if (signedIn && activeUser && discard()) enter(activeUser).catch(notice);
 });
-api('/me')
-  .then(enter)
-  .catch(() => {});
+const workspaceTools = setupWorkspaceTools({
+  api,
+  getContext: () => ({
+    current,
+    user: signedIn ? activeUser : null,
+    ready,
+    pending: pending.size,
+    editing,
+  }),
+  searchItems: () => [
+    ...documents
+      .filter(() => !trash)
+      .map((d) => ({ id: d.id, name: d.title, kind: 'Document' })),
+    ...projects.map((p) => ({ id: p.id, name: p.name, kind: 'Project' })),
+    ...folders.map((f) => ({
+      id: f.id,
+      project: f.project_id,
+      name: f.name,
+      kind: 'Folder',
+    })),
+  ],
+  navigate: async (item) => {
+    if (!discard()) return;
+    if (item.kind === 'Document') {
+      await openDocument(item.id);
+      return;
+    }
+    home();
+    trash = false;
+    $('trash-view').textContent = 'Trash';
+    await refreshList();
+    $('project-filter').value = String(
+      item.kind === 'Project' ? item.id : item.project,
+    );
+    folderOptions();
+    if (item.kind === 'Folder') $('folder-filter').value = String(item.id);
+    renderList();
+  },
+});
+setupWritingTools({
+  api,
+  getContext: () => ({ current, saved: ready && !dirty && !pending.size }),
+});
+const publicRoute = setupCommunity({
+  api,
+  getCurrent: () => current,
+  isSaved: () => !dirty && ready && pending.size === 0,
+});
+if (!publicRoute)
+  api('/me')
+    .then(enter)
+    .catch(() => {});

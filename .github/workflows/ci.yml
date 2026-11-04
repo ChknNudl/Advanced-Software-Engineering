@@ -19,6 +19,7 @@ jobs:
   # (Settings -> Rules -> Rulesets -> "Protect main"). If you rename it,
   # update the required status check there too, or merges will wait forever.
   checks:
+    timeout-minutes: 15
     # Run on a fresh, temporary Linux machine. The version is pinned (rather
     # than `ubuntu-latest`) so a GitHub OS upgrade can't change results unexpectedly.
     runs-on: ubuntu-24.04
@@ -67,6 +68,18 @@ jobs:
       # Unit tests: runs the automated tests in app/test/.
       - name: Unit tests
         run: pnpm test
+
+      - name: Property-based WebSocket chaos (Task 2)
+        env:
+          CHAOS_RUNS: "100"
+          CHAOS_SEED: "20261104"
+        run: pnpm test:chaos
+
+      - name: Independent chaos seed
+        env:
+          CHAOS_RUNS: "100"
+          CHAOS_SEED: "11042026"
+        run: pnpm test:chaos
 
       # Build: confirms the project compiles for production. If any step above
       # fails, the job stops here and the PR shows a red cross.

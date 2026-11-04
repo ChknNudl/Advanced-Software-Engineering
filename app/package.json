@@ -12,11 +12,12 @@
     "build": "pnpm build:client && tsc",
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src test public/app.js",
+    "lint": "eslint src test public/app.js public/community.js public/collaboration.js public/cursors.js public/workspace-tools.js public/writing-tools.js",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "tsx --test test/*.test.ts",
-    "check": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm build",
+    "test:chaos": "tsx --test test/chaos/*.chaos.ts",
+    "check": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm test:chaos && pnpm build",
     "build:client": "esbuild public/app.js --bundle --format=esm --outfile=public/client.js"
   },
   "dependencies": {
@@ -35,6 +36,7 @@
     "@types/ws": "^8.18.2",
     "esbuild": "^0.28.2",
     "eslint": "^9.39.5",
+    "fast-check": "^4.10.2",
     "globals": "^17.13.0",
     "prettier": "^3.9.10",
     "tsx": "^4.23.15",

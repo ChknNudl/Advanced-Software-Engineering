@@ -116,11 +116,14 @@ export function createStore(path: string) {
     apply(id: number, update: Uint8Array) {
       const y = this.state(id);
       try {
+        const before = Y.encodeStateAsUpdate(y);
         Y.applyUpdate(y, update);
         const markdown = y.getText('markdown').toString();
         const state = Y.encodeStateAsUpdate(y);
         if (markdown.length > 100000 || state.length > 1500000)
           throw new Error('Document collaboration limit exceeded.');
+        if (Buffer.from(before).equals(Buffer.from(state)))
+          return this.document(id)!;
         db.prepare(
           'UPDATE documents SET markdown=?,y_state=?,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=? AND deleted_at IS NULL',
         ).run(markdown, state, id);
