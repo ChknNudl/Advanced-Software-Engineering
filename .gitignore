@@ -38,3 +38,7 @@ Thumbs.db
 *.db
 *.db-wal
 *.db-shm
+
+# TLC model-checker output
+/formal/states/
+/formal/*_TTrace_*
